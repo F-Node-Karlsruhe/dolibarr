@@ -533,7 +533,7 @@ function pdf_build_address($outputlangs, $sourcecompany, $targetcompany = '', $t
 				}
 				$stringaddress .= ($stringaddress ? "\n" : '').$tmp.': '.$outputlangs->convToOutputCharset($sourcecompany->idprof4);
 			}
-			if (getDolGlobalString('MAIN_PROFID5_IN_SOURCE_ADDRESS') && !empty($sourcecompany->idprof5)) {
+			if (!empty($sourcecompany->idprof5)) {
 				$tmp = $outputlangs->transcountrynoentities("ProfId5", $sourcecompany->country_code);
 				if (preg_match('/\((.+)\)/', $tmp, $reg)) {
 					$tmp = $reg[1];
@@ -700,7 +700,7 @@ function pdf_build_address($outputlangs, $sourcecompany, $targetcompany = '', $t
 				}
 				$stringaddress .= ($stringaddress ? "\n" : '').$tmp.': '.$outputlangs->convToOutputCharset($targetcompany->idprof4);
 			}
-			if (getDolGlobalString('MAIN_PROFID5_IN_ADDRESS') && !empty($targetcompany->idprof5)) {
+			if (!empty($targetcompany->idprof5)) {
 				$tmp = $outputlangs->transcountrynoentities("ProfId5", $targetcompany->country_code);
 				if (preg_match('/\((.+)\)/', $tmp, $reg)) {
 					$tmp = $reg[1];
