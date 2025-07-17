@@ -1906,6 +1906,53 @@ function pdf_getlinedesc($object, $i, $outputlangs, $hideref = 0, $hidedesc = 0,
 		$libelleproduitservice = preg_replace('/__N__/', "\n", $libelleproduitservice);
 	}
 
+
+	// Add product extrafields if they exist and are configured to be shown in PDF
+	if ($idprod && getDolGlobalInt('PDF_PRODUCT_SHOW_EXTRAFIELDS', 1)) {
+		require_once DOL_DOCUMENT_ROOT.'/core/class/extrafields.class.php';
+		$extrafields = new ExtraFields($db);
+		$extrafields->fetch_name_optionals_label('product', true);
+		
+		if (!empty($extrafields->attributes['product']['label']) && is_array($extrafields->attributes['product']['label'])) {
+			$prodser->fetch_optionals();
+			
+			foreach ($extrafields->attributes['product']['label'] as $key => $label) {
+				// Check if extrafield is configured to be printable (printable = 3 or 4 means show in description)
+				$printable = intval($extrafields->attributes['product']['printable'][$key]);
+				if (($printable === 3 || $printable === 4) && !empty($prodser->array_options['options_'.$key])) {
+					// Load language if required
+					if (!empty($extrafields->attributes['product']['langfile'][$key])) {
+						$outputlangs->load($extrafields->attributes['product']['langfile'][$key]);
+					}
+					
+					$extrafieldValue = $extrafields->showOutputField($key, $prodser->array_options['options_'.$key], '', 'product', $outputlangs);
+					
+					// Clean up HTML for PDF compatibility
+					if ($extrafields->attributes['product']['type'][$key] == 'link') {
+						$extrafieldValue = dol_string_nohtmltag($extrafieldValue);
+					}
+					
+					// Display stars extrafield as simple string
+					if ($extrafields->attributes['product']['type'][$key] == 'stars') {
+						$extrafieldValue = '';
+						for ($i = 0; $i < $prodser->array_options['options_'.$key]; $i++) {
+							$extrafieldValue .= ' *';
+						}
+					}
+					
+					// Only add if not empty (for printable = 4)
+					if ($printable === 4 && empty($extrafieldValue)) {
+						continue;
+					}
+					
+					$extrafieldLabel = $outputlangs->transnoentities($label);
+					$extrafieldText = $extrafieldLabel.': '.$extrafieldValue;
+					$libelleproduitservice = dol_concatdesc($libelleproduitservice, $extrafieldText);
+				}
+			}
+		}
+	}
+
 	// Add product public notes if they exist
 	if (!empty($note) && getDolGlobalInt('PDF_PRODUCT_SHOW_PUBLIC_NOTES', 1)) {
 		$libelleproduitservice = dol_concatdesc($libelleproduitservice, $note);
