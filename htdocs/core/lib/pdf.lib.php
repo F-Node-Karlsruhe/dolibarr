@@ -1625,6 +1625,11 @@ function pdf_getlinedesc($object, $i, $outputlangs, $hideref = 0, $hidedesc = 0,
 				$note = $prodser->multilangs[$outputlangs->defaultlang]["other"];
 			}
 		}
+		
+		// Add product public notes if not already set and if they exist
+		if (empty($note) && !empty($prodser->note_public)) {
+			$note = $prodser->note_public;
+		}
 	} elseif (($object->element == 'facture' || $object->element == 'facturefourn') && preg_match('/^\(DEPOSIT\).+/', $desc)) { // We must not replace '(DEPOSIT)' when it is alone, it will be translated and detailed later
 		$desc = str_replace('(DEPOSIT)', $outputlangs->trans('Deposit'), $desc);
 	}
@@ -1900,6 +1905,12 @@ function pdf_getlinedesc($object, $i, $outputlangs, $hideref = 0, $hidedesc = 0,
 	} else {
 		$libelleproduitservice = preg_replace('/__N__/', "\n", $libelleproduitservice);
 	}
+
+	// Add product public notes if they exist
+	if (!empty($note) && getDolGlobalInt('PDF_PRODUCT_SHOW_PUBLIC_NOTES', 1)) {
+		$libelleproduitservice = dol_concatdesc($libelleproduitservice, $note);
+	}
+
 	$libelleproduitservice = dol_htmlentitiesbr($libelleproduitservice, 1);
 
 	return $libelleproduitservice;
