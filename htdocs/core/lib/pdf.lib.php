@@ -1953,6 +1953,162 @@ function pdf_getlinedesc($object, $i, $outputlangs, $hideref = 0, $hidedesc = 0,
 		}
 	}
 
+	// Add lot/serie information for used materials from linked manufacture orders
+	if ($idprod && isModEnabled('mrp')) {
+		// Check if there are linked manufacture orders
+		if (!empty($object->linkedObjectsIds['mo']) || !empty($object->linkedObjects['mo'])) {
+			require_once DOL_DOCUMENT_ROOT.'/mrp/class/mo.class.php';
+			require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+			
+			$outputlangs->load('mrp');
+			$outputlangs->load('productbatch');
+			
+			$manufactureOrders = array();
+			
+			// Get manufacture orders from linked objects
+			if (!empty($object->linkedObjects['mo'])) {
+				$manufactureOrders = $object->linkedObjects['mo'];
+			} elseif (!empty($object->linkedObjectsIds['mo'])) {
+				// Load manufacture orders if not already loaded
+				foreach ($object->linkedObjectsIds['mo'] as $moId) {
+					$mo = new Mo($db);
+					if ($mo->fetch($moId) > 0) {
+						$manufactureOrders[] = $mo;
+					}
+				}
+			}
+			
+			$materialsUsed = array();
+			
+			// Process each manufacture order
+			foreach ($manufactureOrders as $mo) {
+				// Get consumed materials (materials used in production)
+				$consumedLines = $mo->fetchLinesLinked('consumed');
+				
+				foreach ($consumedLines as $line) {
+					$productId = $line['fk_product'];
+					$batch = $line['batch'];
+					$qty = $line['qty'];
+					
+					// Only include if it's the same product as the current line
+					if ($productId == $idprod && !empty($batch)) {
+						$key = $batch;
+						if (!isset($materialsUsed[$key])) {
+							$materialsUsed[$key] = array(
+								'batch' => $batch,
+								'qty' => 0,
+								'mo_refs' => array()
+							);
+						}
+						$materialsUsed[$key]['qty'] += $qty;
+						if (!in_array($mo->ref, $materialsUsed[$key]['mo_refs'])) {
+							$materialsUsed[$key]['mo_refs'][] = $mo->ref;
+						}
+					}
+				}
+			}
+			
+			// Add lot/serie information to description
+			if (!empty($materialsUsed)) {
+				$lotInfo = 'Materials Used: ';
+				$lotDetails = array();
+				
+				foreach ($materialsUsed as $material) {
+					$detail = 'Recall: '.$material['batch'];
+					if ($material['qty'] > 0) {
+						$detail .= ' (Qty: '.$material['qty'].')';
+					}
+					if (!empty($material['mo_refs'])) {
+						$detail .= ' - MO: '.implode(', ', $material['mo_refs']);
+					}
+					$lotDetails[] = $detail;
+				}
+				
+				$lotInfo .= implode('; ', $lotDetails);
+				$libelleproduitservice = dol_concatdesc($libelleproduitservice, $lotInfo);
+			}
+		} else {
+			// Try to load linked objects if not already loaded
+			if (method_exists($object, 'fetchObjectLinked') && empty($object->linkedObjectsIds) && empty($object->linkedObjects)) {
+				$object->fetchObjectLinked();
+				
+				// Check again for manufacture orders
+				if (!empty($object->linkedObjectsIds['mo']) || !empty($object->linkedObjects['mo'])) {
+					require_once DOL_DOCUMENT_ROOT.'/mrp/class/mo.class.php';
+					require_once DOL_DOCUMENT_ROOT.'/product/class/product.class.php';
+					
+					$outputlangs->load('mrp');
+					$outputlangs->load('productbatch');
+					
+					$manufactureOrders = array();
+					
+					// Get manufacture orders from linked objects
+					if (!empty($object->linkedObjects['mo'])) {
+						$manufactureOrders = $object->linkedObjects['mo'];
+					} elseif (!empty($object->linkedObjectsIds['mo'])) {
+						// Load manufacture orders if not already loaded
+						foreach ($object->linkedObjectsIds['mo'] as $moId) {
+							$mo = new Mo($db);
+							if ($mo->fetch($moId) > 0) {
+								$manufactureOrders[] = $mo;
+							}
+						}
+					}
+					
+					$materialsUsed = array();
+					
+					// Process each manufacture order
+					foreach ($manufactureOrders as $mo) {
+						// Get consumed materials (materials used in production)
+						$consumedLines = $mo->fetchLinesLinked('consumed');
+						
+						foreach ($consumedLines as $line) {
+							$productId = $line['fk_product'];
+							$batch = $line['batch'];
+							$qty = $line['qty'];
+							
+							// Only include if it's the same product as the current line
+							if ($productId == $idprod && !empty($batch)) {
+								$key = $batch;
+								if (!isset($materialsUsed[$key])) {
+									$materialsUsed[$key] = array(
+										'batch' => $batch,
+										'qty' => 0,
+										'mo_refs' => array()
+									);
+								}
+								$materialsUsed[$key]['qty'] += $qty;
+								if (!in_array($mo->ref, $materialsUsed[$key]['mo_refs'])) {
+									$materialsUsed[$key]['mo_refs'][] = $mo->ref;
+								}
+							}
+						}
+					}
+					
+					// Add lot/serie information to description
+					if (!empty($materialsUsed)) {
+						$lotInfo = 'Materials Used: ';
+						$lotDetails = array();
+						
+						foreach ($materialsUsed as $material) {
+							$detail = 'Batch: '.$material['batch'];
+							if ($material['qty'] > 0) {
+								$detail .= ' (Qty: '.$material['qty'].')';
+							}
+							if (!empty($material['mo_refs'])) {
+								$detail .= ' - MO: '.implode(', ', $material['mo_refs']);
+							}
+							$lotDetails[] = $detail;
+						}
+						
+						$lotInfo .= implode('; ', $lotDetails);
+						$libelleproduitservice = dol_concatdesc($libelleproduitservice, $lotInfo);
+					}
+				}
+			}
+		}
+	}
+
 	// Add product public notes if they exist
 	if (!empty($note) && getDolGlobalInt('PDF_PRODUCT_SHOW_PUBLIC_NOTES', 1)) {
 		$libelleproduitservice = dol_concatdesc($libelleproduitservice, $note);
