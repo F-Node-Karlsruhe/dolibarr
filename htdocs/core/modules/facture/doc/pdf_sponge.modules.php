@@ -524,170 +524,6 @@ class pdf_sponge extends ModelePDFFactures
 
 				$nexY = $this->tab_top - 1;
 
-				// Incoterm
-				$height_incoterms = 0;
-				if (isModEnabled('incoterm')) {
-					$desc_incoterms = $object->getIncotermsForPDF();
-					if ($desc_incoterms) {
-						$this->tab_top -= 2;
-
-						$pdf->SetFont('', '', $default_font_size - 1);
-						$pdf->writeHTMLCell(190, 3, $this->posxdesc - 1, $this->tab_top - 1, dol_htmlentitiesbr($desc_incoterms), 0, 1);
-						$nexY = max($pdf->GetY(), $nexY);
-						$height_incoterms = $nexY - $this->tab_top;
-
-						// Rect takes a length in 3rd parameter
-						$pdf->SetDrawColor(192, 192, 192);
-						$pdf->RoundedRect($this->marge_gauche, $this->tab_top - 1, $this->page_largeur - $this->marge_gauche - $this->marge_droite, $height_incoterms + 3, $this->corner_radius, '1234', 'D');
-
-						$this->tab_top = $nexY + 6;
-						$height_incoterms += 4;
-					}
-				}
-
-				// Displays notes. Here we are still on code executed only for the first page.
-				$notetoshow = empty($object->note_public) ? '' : $object->note_public;
-				if (getDolGlobalString('MAIN_ADD_SALE_REP_SIGNATURE_IN_NOTE')) {
-					// Get first sale rep
-					if (is_object($object->thirdparty)) {
-						$salereparray = $object->thirdparty->getSalesRepresentatives($user);
-						$salerepobj = new User($this->db);
-						$salerepobj->fetch($salereparray[0]['id']);
-						if (!empty($salerepobj->signature)) {
-							$notetoshow = dol_concatdesc($notetoshow, $salerepobj->signature);
-						}
-					}
-				}
-
-				// Extrafields in note
-				$extranote = $this->getExtrafieldsInHtml($object, $outputlangs);
-				if (!empty($extranote)) {
-					$notetoshow = dol_concatdesc((string) $notetoshow, $extranote);
-				}
-
-				$pagenb = $pdf->getPage();
-				if ($notetoshow) {
-					$this->tab_top -= 2;
-
-					$tab_width = $this->page_largeur - $this->marge_gauche - $this->marge_droite;
-					$pageposbeforenote = $pagenb;
-
-					$substitutionarray = pdf_getSubstitutionArray($outputlangs, null, $object);
-					complete_substitutions_array($substitutionarray, $outputlangs, $object);
-					$notetoshow = make_substitutions($notetoshow, $substitutionarray, $outputlangs);
-					$notetoshow = convertBackOfficeMediasLinksToPublicLinks($notetoshow);
-
-					$pdf->startTransaction();
-
-					$pdf->SetFont('', '', $default_font_size - 1);
-					$pdf->writeHTMLCell(190, 3, $this->posxdesc - 1, $this->tab_top, dol_htmlentitiesbr($notetoshow), 0, 1);
-					// Description
-					$pageposafternote = $pdf->getPage();
-					$posyafter = $pdf->GetY();
-
-					if ($pageposafternote > $pageposbeforenote) {
-						$pdf->rollbackTransaction(true);
-
-						// prepare pages to receive notes
-						while ($pagenb < $pageposafternote) {
-							$pdf->AddPage();
-							$pagenb++;
-							if (!empty($tplidx)) {
-								$pdf->useTemplate($tplidx);
-							}
-							if (!getDolGlobalInt('MAIN_PDF_DONOTREPEAT_HEAD')) {
-								$this->_pagehead($pdf, $object, 0, $outputlangs, $outputlangsbis);
-							}
-							$pdf->setTopMargin($this->tab_top_newpage);
-							// The only function to edit the bottom margin of current page to set it.
-							$pdf->setPageOrientation('', true, $this->heightforfooter + $this->heightforfreetext);
-						}
-
-						// back to start
-						$pdf->setPage($pageposbeforenote);
-						$pdf->setPageOrientation('', true, $this->heightforfooter + $this->heightforfreetext);
-						$pdf->SetFont('', '', $default_font_size - 1);
-						$pdf->writeHTMLCell(190, 3, $this->posxdesc - 1, $this->tab_top, dol_htmlentitiesbr($notetoshow), 0, 1);
-						$pageposafternote = $pdf->getPage();
-
-						$posyafter = $pdf->GetY();
-
-						if ($posyafter > ($this->page_hauteur - ($this->heightforfooter + $this->heightforfreetext + 20))) {	// There is no space left for total+free text
-							$pdf->AddPage('', '', true);
-							$pagenb++;
-							$pageposafternote++;
-							$pdf->setPage($pageposafternote);
-							$pdf->setTopMargin($this->tab_top_newpage);
-							// The only function to edit the bottom margin of current page to set it.
-							$pdf->setPageOrientation('', true, $this->heightforfooter + $this->heightforfreetext);
-							//$posyafter = $this->tab_top_newpage;
-						}
-
-
-						// apply note frame to previous pages
-						$i = $pageposbeforenote;
-						while ($i < $pageposafternote) {
-							$pdf->setPage($i);
-
-
-							$pdf->SetDrawColor(128, 128, 128);
-							// Draw note frame
-							if ($i > $pageposbeforenote) {
-								$height_note = $this->page_hauteur - ($this->tab_top_newpage + $this->heightforfooter);
-								$pdf->RoundedRect($this->marge_gauche, $this->tab_top_newpage - 1, $tab_width, $height_note + 1, $this->corner_radius, '1234', 'D');
-							} else {
-								$height_note = $this->page_hauteur - ($this->tab_top + $this->heightforfooter);
-								$pdf->RoundedRect($this->marge_gauche, $this->tab_top - 1, $tab_width, $height_note + 1, $this->corner_radius, '1234', 'D');
-							}
-
-							// Add footer
-							$pdf->setPageOrientation('', true, 0); // The only function to edit the bottom margin of current page to set it.
-							$this->_pagefoot($pdf, $object, $outputlangs, 1, $this->getHeightForQRInvoice($i, $object, $outputlangs));
-
-							$i++;
-						}
-
-						// apply note frame to last page
-						$pdf->setPage($pageposafternote);
-						if (!empty($tplidx)) {
-							$pdf->useTemplate($tplidx);
-						}
-						if (!getDolGlobalInt('MAIN_PDF_DONOTREPEAT_HEAD')) {
-							$this->_pagehead($pdf, $object, 0, $outputlangs, $outputlangsbis);
-						}
-						$height_note = $posyafter - $this->tab_top_newpage;
-						$pdf->RoundedRect($this->marge_gauche, $this->tab_top_newpage - 1, $tab_width, $height_note + 1, $this->corner_radius, '1234', 'D');
-					} else {
-						// No pagebreak
-						$pdf->commitTransaction();
-						$posyafter = $pdf->GetY();
-						$height_note = $posyafter - $this->tab_top;
-						$pdf->RoundedRect($this->marge_gauche, $this->tab_top - 1, $tab_width, $height_note + 1, $this->corner_radius, '1234', 'D');
-
-
-						if ($posyafter > ($this->page_hauteur - ($this->heightforfooter + $this->heightforfreetext + 20))) {
-							// not enough space, need to add page
-							$pdf->AddPage('', '', true);
-							$pagenb++;
-							$pageposafternote++;
-							$pdf->setPage($pageposafternote);
-							if (!empty($tplidx)) {
-								$pdf->useTemplate($tplidx);
-							}
-							if (!getDolGlobalInt('MAIN_PDF_DONOTREPEAT_HEAD')) {
-								$this->_pagehead($pdf, $object, 0, $outputlangs, $outputlangsbis);
-							}
-
-							$posyafter = $this->tab_top_newpage;
-						}
-					}
-
-					$tab_height -= $height_note;
-					$this->tab_top = $posyafter + 6;
-				} else {
-					$height_note = 0;
-				}
-
 				// Use new auto column system
 				$this->prepareArrayColumnField($object, $outputlangs, $hidedetails, $hidedesc, $hideref);
 
@@ -712,7 +548,7 @@ class pdf_sponge extends ModelePDFFactures
 
 					$sub_options = $object->lines[$i]->extraparams["subtotal"] ?? array();
 
-					if ($object->lines[$i]->special_code == SUBTOTALS_SPECIAL_CODE) {
+					if (defined('SUBTOTALS_SPECIAL_CODE') && $object->lines[$i]->special_code == SUBTOTALS_SPECIAL_CODE) {
 						$level = $object->lines[$i]->qty;
 						if ($sub_options) {
 							if (isset($sub_options['titleshowuponpdf'])) {
@@ -800,7 +636,7 @@ class pdf_sponge extends ModelePDFFactures
 
 					// Description of product line
 					if ($this->getColumnStatus('desc')) {
-						if ($object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) {
+						if (!defined('SUBTOTALS_SPECIAL_CODE') || $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) {
 							$this->printColDescContent($pdf, $curY, 'desc', $object, $i, $outputlangs, $hideref, $hidedesc);
 							$this->setAfterColsLinePositionsData('desc', $pdf->GetY(), $pdf->getPage());
 						} else {
@@ -846,45 +682,45 @@ class pdf_sponge extends ModelePDFFactures
 					}
 
 					// VAT Rate
-					if ($this->getColumnStatus('vat') && $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) {
+					if ($this->getColumnStatus('vat') && (!defined('SUBTOTALS_SPECIAL_CODE') || $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE)) {
 						$vat_rate = pdf_getlinevatrate($object, $i, $outputlangs, $hidedetails);
 						$this->printStdColumnContent($pdf, $curY, 'vat', $vat_rate);
 					}
 
 					// Unit price before discount
-					if ($this->getColumnStatus('subprice') && $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE && isset($pdf_sub_options['titleshowuponpdf'])) {
+					if ($this->getColumnStatus('subprice') && (!defined('SUBTOTALS_SPECIAL_CODE') || $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) && isset($pdf_sub_options['titleshowuponpdf'])) {
 						$up_excl_tax = pdf_getlineupexcltax($object, $i, $outputlangs, $hidedetails);
 						$this->printStdColumnContent($pdf, $curY, 'subprice', $up_excl_tax);
 					}
 
 					// Quantity
 					// Enough for 6 chars
-					if ($this->getColumnStatus('qty') && $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) {
+					if ($this->getColumnStatus('qty') && (!defined('SUBTOTALS_SPECIAL_CODE') || $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE)) {
 						$qty = pdf_getlineqty($object, $i, $outputlangs, $hidedetails);
 						$this->printStdColumnContent($pdf, $curY, 'qty', $qty);
 					}
 
 					// Situation progress
-					if ($this->getColumnStatus('progress') && $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) {
+					if ($this->getColumnStatus('progress') && (!defined('SUBTOTALS_SPECIAL_CODE') || $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE)) {
 						$progress = pdf_getlineprogress($object, $i, $outputlangs, $hidedetails);
 						$this->printStdColumnContent($pdf, $curY, 'progress', $progress);
 					}
 
 					// Unit
-					if ($this->getColumnStatus('unit') && $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) {
+					if ($this->getColumnStatus('unit') && (!defined('SUBTOTALS_SPECIAL_CODE') || $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE)) {
 						$unit = pdf_getlineunit($object, $i, $outputlangs, $hidedetails);
 						$this->printStdColumnContent($pdf, $curY, 'unit', $unit);
 					}
 
 					// Discount on line
-					if ($this->getColumnStatus('discount') && $object->lines[$i]->remise_percent && $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) {
+					if ($this->getColumnStatus('discount') && $object->lines[$i]->remise_percent && (!defined('SUBTOTALS_SPECIAL_CODE') || $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE)) {
 						$remise_percent = pdf_getlineremisepercent($object, $i, $outputlangs, $hidedetails);
 						$this->printStdColumnContent($pdf, $curY, 'discount', $remise_percent);
 					}
 
 					// Total excl tax line (HT)
 					if ($this->getColumnStatus('totalexcltax')) {
-						if ($object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE && isset($pdf_sub_options['titleshowtotalexludingvatonpdf'])) {
+						if ((!defined('SUBTOTALS_SPECIAL_CODE') || $object->lines[$i]->special_code != SUBTOTALS_SPECIAL_CODE) && isset($pdf_sub_options['titleshowtotalexludingvatonpdf'])) {
 							$total_excl_tax = pdf_getlinetotalexcltax($object, $i, $outputlangs, $hidedetails);
 							$this->printStdColumnContent($pdf, $curY, 'totalexcltax', $total_excl_tax);
 						} elseif ($object->lines[$i]->qty < 0 && isset($sub_options['subtotalshowtotalexludingvatonpdf'])) {
@@ -1433,6 +1269,56 @@ class pdf_sponge extends ModelePDFFactures
 			$pdf->MultiCell($posxend - $posxval, 4, $categoryOfOperationLabel, 0, 'L');
 
 			$posy = $pdf->GetY() + 3; // for 2 lines
+		}
+
+		// Show incoterm
+		if (isModEnabled('incoterm')) {
+			$desc_incoterms = $object->getIncotermsForPDF();
+			if ($desc_incoterms) {
+				$pdf->SetFont('', '', $default_font_size - 1);
+				$pdf->writeHTMLCell($this->page_largeur - $this->marge_gauche - $this->marge_droite, 3, $this->marge_gauche, $posy, dol_htmlentitiesbr($desc_incoterms), 0, 1);
+				$nexY = $pdf->GetY();
+				$height_incoterms = $nexY - $posy;
+
+				// Rect takes a length in 3rd parameter
+				$pdf->SetDrawColor(192, 192, 192);
+				$pdf->RoundedRect($this->marge_gauche, $posy - 1, $this->page_largeur - $this->marge_gauche - $this->marge_droite, $height_incoterms + 3, $this->corner_radius, '1234', 'D');
+
+				$posy = $nexY + 6;
+			}
+		}
+
+		// Show public notes
+		$notetoshow = empty($object->note_public) ? '' : $object->note_public;
+		if (getDolGlobalString('MAIN_ADD_SALE_REP_SIGNATURE_IN_NOTE')) {
+			// Get first sale rep
+			if (is_object($object->thirdparty)) {
+				$salereparray = $object->thirdparty->getSalesRepresentatives($user);
+				$salerepobj = new User($this->db);
+				$salerepobj->fetch($salereparray[0]['id']);
+				if (!empty($salerepobj->signature)) {
+					$notetoshow = dol_concatdesc($notetoshow, $salerepobj->signature);
+				}
+			}
+		}
+
+		// Extrafields in note
+		$extranote = $this->getExtrafieldsInHtml($object, $outputlangs);
+		if (!empty($extranote)) {
+			$notetoshow = dol_concatdesc((string) $notetoshow, $extranote);
+		}
+
+		if ($notetoshow) {
+			$pdf->SetFont('', '', $default_font_size - 1);
+			$pdf->writeHTMLCell($this->page_largeur - $this->marge_gauche - $this->marge_droite, 3, $this->marge_gauche, $posy, dol_htmlentitiesbr($notetoshow), 0, 1);
+			$nexY = $pdf->GetY();
+			$height_note = $nexY - $posy;
+
+			// Rect takes a length in 3rd parameter
+			$pdf->SetDrawColor(192, 192, 192);
+			$pdf->RoundedRect($this->marge_gauche, $posy - 1, $this->page_largeur - $this->marge_gauche - $this->marge_droite, $height_note + 3, $this->corner_radius, '1234', 'D');
+
+			$posy = $nexY + 6;
 		}
 
 		if ($object->type != 2) {
