@@ -2030,6 +2030,39 @@ function pdf_getlinedesc($object, $i, $outputlangs, $hideref = 0, $hidedesc = 0,
 		} 
 	}
 
+	// Add summed weight in KG if product has weight
+	if ($idprod && !empty($prodser->weight) && !empty($object->lines[$i]->qty)) {
+		$productWeight = $prodser->weight;
+		$productWeightUnits = $prodser->weight_units;
+		$lineQty = $object->lines[$i]->qty;
+		
+		// Calculate total weight in KG
+		$totalWeightInKg = 0;
+		
+		if ($productWeightUnits < 50) {   // Standard units (power of 10 of official unit)
+			$trueWeightUnit = pow(10, $productWeightUnits);
+			$totalWeightInKg = $productWeight * $lineQty * $trueWeightUnit;
+		} else {
+			// Special units
+			if ($productWeightUnits == 99) {
+				// conversion 1 Pound = 0.45359237 KG
+				$trueWeightUnit = 0.45359237;
+				$totalWeightInKg = $productWeight * $lineQty * $trueWeightUnit;
+			} elseif ($productWeightUnits == 98) {
+				// conversion 1 Ounce = 0.0283495 KG
+				$trueWeightUnit = 0.0283495;
+				$totalWeightInKg = $productWeight * $lineQty * $trueWeightUnit;
+			} else {
+				$totalWeightInKg = $productWeight * $lineQty; // This may be wrong if we mix different units
+			}
+		}
+		
+		if ($totalWeightInKg > 0) {
+			$weightString = 'Net. ' . round($totalWeightInKg, 2) . 'kg';
+			$libelleproduitservice = dol_concatdesc($libelleproduitservice, $weightString);
+		}
+	}
+
 	// Add product public notes if they exist
 	if (!empty($note) && getDolGlobalInt('PDF_PRODUCT_SHOW_PUBLIC_NOTES', 1)) {
 		$libelleproduitservice = dol_concatdesc($libelleproduitservice, $note);
