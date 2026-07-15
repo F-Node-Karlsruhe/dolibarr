@@ -416,15 +416,42 @@ class pdf_squille extends ModelePdfReception
 				$iniY = $tab_top + 7;
 				$curY = $tab_top + 7;
 				$nexY = $tab_top + 7;
-				$fk_commandefourndet = 0;
 				$totalOrdered = 0;
+				$totalReceived = 0;
 				$totalAmount = 0;
 
-				// Loop on each lines
-				for ($i = 0; $i < $nblines; $i++) {
+				// Group reception lines by origin PO line so we can show order qty + sum received per article,
+				// then detail lines per charge/lot/serial underneath.
+				$sumReceivedByDet = array();
+				$indexesByDet = array();
+				$detOrder = array();
+				for ($j = 0; $j < $nblines; $j++) {
+					$detid = !empty($object->lines[$j]->fk_commandefourndet) ? (int) $object->lines[$j]->fk_commandefourndet : (int) $object->lines[$j]->fk_elementdet;
+					if ($detid <= 0) {
+						$detid = -($j + 1); // fallback unique key when origin line is missing
+					}
+					if (!isset($indexesByDet[$detid])) {
+						$indexesByDet[$detid] = array();
+						$sumReceivedByDet[$detid] = 0;
+						$detOrder[] = $detid;
+					}
+					$indexesByDet[$detid][] = $j;
+					$sumReceivedByDet[$detid] += (float) $object->lines[$j]->qty;
+				}
+
+				// Loop on each article (origin order line)
+				foreach ($detOrder as $detid) {
+					$indexes = $indexesByDet[$detid];
+					$i = $indexes[0];
+					$articleQtyReceived = $sumReceivedByDet[$detid];
+					$nbLots = count($indexes);
+
 					$curY = $nexY;
 					$pdf->SetFont('', '', $default_font_size - 1); // Into loop to work with multipage
 					$pdf->SetTextColor(0, 0, 0);
+
+					// Do not append batch into product description: lots are printed as sub-lines
+					$object->lines[$i]->detail_batch = array();
 
 					// Define size of image if we need it
 					$imglinesize = array();
@@ -470,18 +497,6 @@ class pdf_squille extends ModelePdfReception
 
 					// Description of product line
 					$curX = $this->posxdesc - 1;
-
-					// The desc of line is not store into reception, so we force it to the value of product.
-					/*
-					if (empty($object->lines[0]->desc)) {
-						// TODO We must get value from fk_commendefourndet
-						$sqldesc = 'SELECT description FROM '.MAIN_DB_PREFIX.' WHERE rowid = '.((int) $object->lines[0]->fk_commandefourndet);
-						$resqldesc = $this->db->query($sqldesc);
-						if ($resqldesc) {
-							$objdesc = $this->db->fetch_object($resqldesc);
-							$object->lines[0]->desc = $objdesc->description;
-						}
-					}*/
 
 					$pdf->startTransaction();
 					pdf_writelinedesc($pdf, $object, $i, $outputlangs, $this->posxpicture - $curX, 3, $curX, $curY, $hideref, $hidedesc);
@@ -545,55 +560,111 @@ class pdf_squille extends ModelePdfReception
 
 					$pdf->SetFont('', '', $default_font_size - 1); // On repositionne la police par default
 
-					// Description
+					// Weight / volume (for article total qty)
 					$pdf->SetXY($this->posxweightvol, $curY);
 					$weighttxt = '';
 					if ($object->lines[$i]->fk_product_type == 0 && is_object($object->lines[$i]->product) && $object->lines[$i]->product->weight) {
-						$weighttxt = round($object->lines[$i]->product->weight * $object->lines[$i]->qty, 5).' '.measuringUnitString(0, "weight", $object->lines[$i]->product->weight_units, 1);
+						$weighttxt = round($object->lines[$i]->product->weight * $articleQtyReceived, 5).' '.measuringUnitString(0, "weight", $object->lines[$i]->product->weight_units, 1);
 					}
 					$voltxt = '';
 					if ($object->lines[$i]->fk_product_type == 0 && is_object($object->lines[$i]->product) && $object->lines[$i]->product->volume) {
-						$voltxt = round($object->lines[$i]->product->volume * $object->lines[$i]->qty, 5).' '.measuringUnitString(0, "volume", $object->lines[$i]->product->volume_units ? $object->lines[$i]->product->volume_units : 0, 1);
+						$voltxt = round($object->lines[$i]->product->volume * $articleQtyReceived, 5).' '.measuringUnitString(0, "volume", $object->lines[$i]->product->volume_units ? $object->lines[$i]->product->volume_units : 0, 1);
 					}
 
 					if (!getDolGlobalString('RECEPTION_PDF_HIDE_WEIGHT_AND_VOLUME')) {
 						$pdf->writeHTMLCell($this->posxqtyordered - $this->posxweightvol + 2, 3, $this->posxweightvol - 1, $curY, $weighttxt.(($weighttxt && $voltxt) ? '<br>' : '').$voltxt, 0, 0, false, true, 'C');
-						//$pdf->MultiCell(($this->posxqtyordered - $this->posxweightvol), 3, $weighttxt.(($weighttxt && $voltxt)?'<br>':'').$voltxt,'','C');
 					}
 
-					// Qty ordered
+					// Qty ordered (once per article)
 					if (!getDolGlobalString('RECEPTION_PDF_HIDE_ORDERED')) {
 						$pdf->SetXY($this->posxqtyordered, $curY);
-						if ($object->lines[$i]->fk_commandefourndet != $fk_commandefourndet) {
-							$pdf->MultiCell(($this->posxqtytoship - $this->posxqtyordered), 3, (string) $object->lines[$i]->qty_asked, '', 'C');
-							$totalOrdered += $object->lines[$i]->qty_asked;
-						}
-						$fk_commandefourndet = $object->lines[$i]->fk_commandefourndet;
+						$pdf->SetFont('', 'B', $default_font_size - 1);
+						$pdf->MultiCell(($this->posxqtytoship - $this->posxqtyordered), 3, (string) $object->lines[$i]->qty_asked, '', 'C');
+						$pdf->SetFont('', '', $default_font_size - 1);
+						$totalOrdered += $object->lines[$i]->qty_asked;
 					}
 
-					// Qty received
+					// Qty received = sum of all charge/lot/serial lines for this article
 					$pdf->SetXY($this->posxqtytoship, $curY);
-					$pdf->MultiCell(($this->posxpuht - $this->posxqtytoship), 3, (string) $object->lines[$i]->qty, '', 'C');
+					$pdf->SetFont('', 'B', $default_font_size - 1);
+					$pdf->MultiCell(($this->posxpuht - $this->posxqtytoship), 3, (string) $articleQtyReceived, '', 'C');
+					$pdf->SetFont('', '', $default_font_size - 1);
+					$totalReceived += $articleQtyReceived;
 
-					// Amount
+					// Amount (on article aggregate qty)
 					if (getDolGlobalString('MAIN_PDF_RECEPTION_DISPLAY_AMOUNT_HT')) {
 						$pdf->SetXY($this->posxpuht, $curY);
 						$pdf->MultiCell(($this->posxtotalht - $this->posxpuht - 1), 3, price($object->lines[$i]->subprice, 0, $outputlangs), '', 'R');
 
-						$amountreceived = price2num($object->lines[$i]->subprice * $object->lines[$i]->qty, 'MT');
+						$amountreceived = price2num($object->lines[$i]->subprice * $articleQtyReceived, 'MT');
 						$pdf->SetXY($this->posxtotalht, $curY);
 						$pdf->MultiCell(($this->page_largeur - $this->marge_droite - $this->posxtotalht), 3, price($amountreceived, 0, $outputlangs), '', 'R');
 
 						$totalAmount += $amountreceived;
 					}
 
+					$nexY = max($nexY, $posYAfterDescription);
 					$nexY += 3;
 					if ($weighttxt && $voltxt) {
 						$nexY += 2;
 					}
 
+					// Sub-lines: one row per charge/lot/serial (when several or when batch is set)
+					foreach ($indexes as $li) {
+						$lotline = $object->lines[$li];
+						$showLotRow = ($nbLots > 1) || !empty($lotline->batch) || !empty($lotline->eatby) || !empty($lotline->sellby);
+						if (!$showLotRow) {
+							continue;
+						}
+
+						// Page break if needed before lot row
+						if (($nexY + 6) > ($this->page_hauteur - ($heightforfooter + $heightforfreetext + $heightforinfotot))) {
+							if ($pagenb == 1) {
+								$this->_tableau($pdf, $tab_top, $this->page_hauteur - $tab_top - $heightforfooter, 0, $outputlangs, 0, 1, $object);
+							} else {
+								$this->_tableau($pdf, $tab_top_newpage, $this->page_hauteur - $tab_top_newpage - $heightforfooter, 0, $outputlangs, 1, 1, $object);
+							}
+							$this->_pagefoot($pdf, $object, $outputlangs, 1);
+							$pdf->AddPage();
+							if (!empty($tplidx)) {
+								$pdf->useTemplate($tplidx);
+							}
+							if (!getDolGlobalInt('MAIN_PDF_DONOTREPEAT_HEAD')) {
+								$this->_pagehead($pdf, $object, 0, $outputlangs);
+							}
+							$pagenb++;
+							$nexY = $tab_top_newpage + 1;
+							$pageposafter = $pagenb;
+						}
+
+						$dte = array();
+						if (!empty($lotline->batch)) {
+							$dte[] = $outputlangs->transnoentitiesnoconv('printBatch', $lotline->batch);
+						}
+						if (!empty($lotline->eatby)) {
+							$dte[] = $outputlangs->transnoentitiesnoconv('printEatby', dol_print_date($lotline->eatby, 'day', false, $outputlangs));
+						}
+						if (!empty($lotline->sellby)) {
+							$dte[] = $outputlangs->transnoentitiesnoconv('printSellby', dol_print_date($lotline->sellby, 'day', false, $outputlangs));
+						}
+						if (empty($dte)) {
+							$dte[] = $outputlangs->transnoentities('Details');
+						}
+
+						$pdf->SetFont('', 'I', $default_font_size - 2);
+						$pdf->SetXY($this->posxdesc + 2, $nexY);
+						$pdf->MultiCell($this->posxqtytoship - $this->posxdesc - 3, 3, implode(' - ', $dte), '', 'L');
+						$lotDescY = $pdf->GetY();
+
+						$pdf->SetXY($this->posxqtytoship, $nexY);
+						$pdf->MultiCell(($this->posxpuht - $this->posxqtytoship), 3, (string) $lotline->qty, '', 'C');
+						$pdf->SetFont('', '', $default_font_size - 1);
+
+						$nexY = max($lotDescY, $nexY + 3) + 1;
+					}
+
 					// Add line
-					if (getDolGlobalString('MAIN_PDF_DASH_BETWEEN_LINES') && $i < ($nblines - 1)) {
+					if (getDolGlobalString('MAIN_PDF_DASH_BETWEEN_LINES') && $detid !== $detOrder[count($detOrder) - 1]) {
 						$pdf->setPage($pageposafter);
 						$pdf->SetLineStyle(array('dash' => '1,1', 'color' => array(80, 80, 80)));
 						//$pdf->SetDrawColor(190,190,200);
@@ -617,7 +688,7 @@ class pdf_squille extends ModelePdfReception
 							$pdf->useTemplate($tplidx);
 						}
 					}
-					if (isset($object->lines[$i + 1]->pagebreak) && $object->lines[$i + 1]->pagebreak) {  // @phan-suppress-current-line PhanUndeclaredProperty
+					if (isset($object->lines[$i]->pagebreak) && $object->lines[$i]->pagebreak) {  // @phan-suppress-current-line PhanUndeclaredProperty
 						if ($pagenb == 1) {
 							$this->_tableau($pdf, $tab_top, $this->page_hauteur - $tab_top - $heightforfooter, 0, $outputlangs, 0, 1, $object);
 						} else {
@@ -643,7 +714,7 @@ class pdf_squille extends ModelePdfReception
 				}
 
 				// Affiche zone totaux
-				$posy = $this->_tableau_tot($pdf, $object, 0, $bottomlasttab, $outputlangs, $totalOrdered, $totalAmount);
+				$posy = $this->_tableau_tot($pdf, $object, 0, $bottomlasttab, $outputlangs, $totalOrdered, $totalAmount, $totalReceived);
 
 				// Pied de page
 				$this->_pagefoot($pdf, $object, $outputlangs);
@@ -692,9 +763,10 @@ class pdf_squille extends ModelePdfReception
 	 *	@param	Translate	$outputlangs	Object langs
 	 *  @param	float		$totalOrdered	Total ordered
 	 *  @param	float		$totalAmount	Total amount
+	 *  @param	float		$totalReceived	Total qty received (sum of line qtys)
 	 *	@return float						Position pour suite
 	 */
-	protected function _tableau_tot(&$pdf, $object, $deja_regle, $posy, $outputlangs, $totalOrdered, $totalAmount = 0)
+	protected function _tableau_tot(&$pdf, $object, $deja_regle, $posy, $outputlangs, $totalOrdered, $totalAmount = 0, $totalReceived = null)
 	{
 		// phpcs:enable
 		global $conf, $mysoc;
@@ -730,7 +802,10 @@ class pdf_squille extends ModelePdfReception
 		$tmparray = $object->getTotalWeightVolume();
 		$totalWeight = $tmparray['weight'];
 		$totalVolume = $tmparray['volume'];
-		$totalToShip = $tmparray['toship'];
+		// Prefer explicit sum of received qtys from the PDF loop; fall back to object helper
+		if ($totalReceived === null) {
+			$totalReceived = $tmparray['toship'];
+		}
 
 		// Set trueVolume and volume_units not currently stored into database
 		if ($object->trueWidth && $object->trueHeight && $object->trueDepth) {
@@ -777,7 +852,7 @@ class pdf_squille extends ModelePdfReception
 
 		// Total received
 		$pdf->SetXY($this->posxqtytoship, $tab2_top + $tab2_hl * $index);
-		$pdf->MultiCell($this->posxpuht - $this->posxqtytoship, $tab2_hl, (string) $totalToShip, 0, 'C', true);
+		$pdf->MultiCell($this->posxpuht - $this->posxqtytoship, $tab2_hl, (string) $totalReceived, 0, 'C', true);
 
 		// Amount
 		if (getDolGlobalString('MAIN_PDF_RECEPTION_DISPLAY_AMOUNT_HT')) {
